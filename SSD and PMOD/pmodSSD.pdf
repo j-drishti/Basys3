@@ -1,0 +1,178 @@
+TOP MODULE:
+`timescale 1ns / 1ps
+module top(
+  input fclk,output [7:0] cathode, output [3:0] anode,output [3:0]SSD_out1, output[3:0]SSD_out2);
+  wire [5:0] count;
+  wire oclk;
+  freqone f(.clk_in(fclk), .clko(oclk));          //1 HZ frequency
+  counter cc (.clk(oclk), .count(count));        //counter module
+  wire[0:1] number= {count[0],count[1]};
+  rr r(.number(number),.clk(fclk),.SSD_out1(SSD_out1), .SSD_out2(SSD_out2));              //PMOD SSD
+  sevenseg_all_18948 s1(.clk(fclk), .cathode(cathode), .anode(anode), .ones(count[2]),.thousands(count[5]),.tens(count[3]),.hundreds(count[4]));
+  //INTERNAL SSD
+endmodule
+
+
+COUNTER:
+`timescale 1ns / 1ps
+module counter(
+  input clk,
+  output reg [5:0] count=0 
+  );
+  always @(posedge clk)
+    begin
+    if (count==6'd63) count <=6'd0;     //assuming there is no reset
+    else count<=count+1;
+  end
+endmodule
+
+
+PMOD SSD:
+`timescale 1ns / 1ps
+module rr(
+    input [1:0] number,
+    input clk,
+    output reg [3:0] SSD_out1, //operate first ssd
+    output reg [3:0] SSD_out2 //operate second ssd
+  );
+  reg [6:0] segments; //sseg
+  reg counter = 0;
+  reg [1:0] digit;
+  always @(posedge clk)
+  begin
+    counter <= ~counter; //to operate both ssds
+    if (counter) digit = number[0];
+    else digit = number[1];
+    end
+    always @(digit)
+      case (digit)
+      4'h0 :segments <= 7'b0111111; // 0
+      4'h1 :segments <= 7'b0000110; // 1
+      4'h2 : segments <= 7'b1011011; // 2
+      4'h3 : segments <= 7'b1001111; // 3
+      4'h4 : segments <= 7'b1100110; // 4
+      4'h5 : segments <= 7'b1101101; // 5
+      4'h6 : segments <= 7'b1111101; // 6
+      4'h7 : segments <= 7'b0000111; // 7
+      4'h8 : segments <= 7'b1111111; // 8
+      4'h9 : segments <= 7'b1101111; // 9
+      4'hA : segments <= 7'b1110111; // A
+      4'hB : segments <= 7'b1111100; // B
+      4'hC : segments <= 7'b0111001; // C
+      4'hD : segments <= 7'b1011110; // D
+      4'hE : segments <= 7'b1111001; // E
+      4'hF : segments <= 7'b1110001; // F
+      default : segments <= 7'b1000000;
+      endcase
+    always @(posedge clk)
+      begin
+      SSD_out1 <= segments[3:0];
+      SSD_out2[2:0] <= segments[6:4];
+      SSD_out2[3] <= counter;
+      end
+endmodule
+
+
+ONE HZ FREQUENCY
+`timescale 1ns / 1ps
+module freqone(clk_in, clko);
+  output clko;
+  input clk_in;
+  reg clko;
+  reg [27:0]count;
+  initial
+  begin
+  clko <= 1'b0;
+  count <= 28'b0;
+  end
+  always @(posedge clk_in)
+  begin
+  if(count < 28'b0010111110101111000010000000)
+  count <= count + 1'b1;
+  else if(count === 28'b0010111110101111000010000000)
+  begin
+  clko <= ~clko; // clk flips
+  count <= 28'b0; //count becomes zero
+  end
+  end
+endmodule
+
+
+
+SEVEN SEGMENT
+`timescale 1ns / 1ps
+module sevenseg_all_18948(
+ input clk,
+ input ones,
+ input tens,
+ input hundreds,
+ input thousands,
+ output [7:0] cathode,
+ output [3:0] anode
+ );
+ reg [6:0]sseg_temp;
+ reg [3:0]an_temp = 4'b1110 ;
+ reg [17:0] count; //the 18 bit counter which allows us to multiplex at 1000Hz
+
+ always @ (posedge clk)
+ begin
+ count <= count + 1;
+ end
+//code for display multiple digits (do not initialize an_temp in line 41 and comment out lines 44
+to 60)
+ always @ (*)
+ begin
+ case(count[17:16]) //using only the 2 MSB's of the counter
+
+ 2'b00 : //When the 2 MSB's are 00 enable the fourth display
+ begin
+ case(ones)
+ 1'b0 : sseg_temp = 7'b0000001; //to display 0
+ 1'b1 : sseg_temp = 7'b1001111; //to display 1
+
+ endcase
+
+ //sseg = ones;
+ an_temp = 4'b1110;
+ end
+
+ 2'b01: //When the 2 MSB's are 01 enable the third display
+ begin
+ case(tens)
+ 1'b0 : sseg_temp = 7'b0000001; //to display 0
+ 1'b1 : sseg_temp = 7'b1001111; //to display 1
+
+ endcase
+
+ //sseg = tens;
+ an_temp = 4'b1101;
+ end
+
+ 2'b10: //When the 2 MSB's are 10 enable the second display
+ begin
+ case(hundreds)
+ 1'b0 : sseg_temp = 7'b0000001; //to display 0
+ 1'd1 : sseg_temp = 7'b1001111; //to display 1
+ endcase
+
+ //sseg = hundreds;
+ an_temp = 4'b1011;
+ end
+
+ 2'b11: //When the 2 MSB's are 11 enable the first display
+ begin
+ case(thousands)
+ 1'd0 : sseg_temp = 7'b0000001; //to display 0
+ 1'd1 : sseg_temp = 7'b1001111; //to display 1
+
+ endcase
+
+ //sseg = thousands;
+ an_temp = 4'b0111;
+ end
+ endcase
+ end
+
+ assign anode = an_temp;
+ assign cathode = {sseg_temp, 1'b1};
+endmodule
